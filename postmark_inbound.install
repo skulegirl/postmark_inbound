@@ -1,0 +1,12 @@
+<?php
+/**
+ * @file
+ * Install and update hooks for the Sendgrid Inbound module.
+ */
+
+/**
+ * Implements hook_uninstall().
+ */
+function postmark_inbound_uninstall() {
+  variable_del('postmark_inbound_email_domain');
+}

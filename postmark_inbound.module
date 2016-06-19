@@ -1,0 +1,199 @@
+<?php
+
+/**
+ * @file
+ * Handle postmark incoming webhooks.
+ */
+
+/**
+ * Implementation of hook_permission().
+ */
+function postmark_inbound_permission() {
+  return array(
+    'call postmark inbound webhook' => array(
+      'title' => t('Call Postmark Inbound Webhook'),
+      'description' => t('Allow user to call postmark inbound webhook. Use for external HTTP authorization using securesite or similar.'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_menu().
+ */
+function postmark_inbound_menu() {
+  $items = array();
+
+  $items['admin/config/system/postmark/inbound'] = array(
+    'title' => 'Inbound',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('postmark_inbound_settings_form'),
+    'access callback' => 'user_access',
+    'access arguments' => array('administer postmark'),
+    'description' => 'Handles Postmark Incoming Webhooks',
+    'file' => 'postmark_inbound.admin.inc',
+    'type' => MENU_LOCAL_TASK,
+  );
+
+  $items['postmark/webhook/inbound'] = array(
+    'title' => 'Postmark Inbound',
+    'description' => 'Inbound email via Postmark',
+    'page callback' => 'postmark_inbound_callback',
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_help().
+ */
+function postmark_inbound_help($path, $arg) {
+  $output = '';
+  switch ($path) {
+    case 'admin/help#postmark_inbound':
+      $output .= '<h3>' . t('Postmark Inbound') . '</h3>';
+      $output .= '<p>' . t('Module provides integration with Postmark Inbound Parsing webhook for email processing.') . '</p>';
+      break;
+  }
+  return $output;
+}
+
+/**
+ * Menu callback for Inbound email via Postmark.
+ */
+function postmark_inbound_callback() {
+  $data = json_decode(file_get_contents('php://input'), true);
+
+  $raw_msg = '';
+  foreach($data['Headers'] as $header) {
+    $raw_msg .= $header['Name'] . '=' . $header['Value'] . ' ';
+  }
+  $raw_msg .= $data['TextBody'] . ' ' . $data['HtmlBody'];
+
+  $args = array(
+    'from_email' => $data['FromFull']['Email'] ?: '',
+    'from_name' => $data['FromFull']['Name'] ?: '',
+    'to_mail' => $data['ToFull'][0]['Email'] ?: '',
+    'subject' => $data['Subject'],
+    'text' => array(
+      'value' => $data['TextBody'] ?: '',
+    ),
+    'raw_msg' => array(
+      'value' => $raw_msg,
+    ),
+  );
+
+  // Load anonymous user if not exist.
+  $args['from_account'] = user_load_by_mail($args['from_email']) ?: user_load(0);
+
+  // Add type & ID.
+  $args += _postmark_inbound_parse_address($args['to_mail']);
+
+  drupal_alter('postmark_inbound', $args);
+
+  rules_invoke_event_by_args('postmark_webhook_inbound', $args);
+
+  watchdog('postmark_inbound', 'Message from %from_email to %to_mail has been received', array(
+    '%from_email' => $args['from_email'],
+    '%to_mail' => $args['to_mail'],
+  ));
+}
+
+/**
+ * Make email address with type & argument.
+ *
+ * @param string $type
+ *   Type of inbound message.
+ *   - Type should not include dots in name.
+ * @param int $id
+ *   Id of inbound message.
+ *
+ * @return string
+ *   Valid email address.
+ */
+function postmark_inbound_make_email_address($type, $id) {
+  $domain = variable_get('postmark_inbound_email_domain', 'example.co.uk');
+
+  return "$type.$id@$domain";
+}
+
+/**
+ * Implements hook_postmark_inbound_alter().
+ *
+ * Finds the first instance of a string that indicates quoted text follows,
+ * and then removes all text from there on.
+ */
+function postmark_inbound_postmark_inbound_alter(&$args) {
+  $patterns = array(
+    '/From:\s*\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i',
+    '/<\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b>/i',
+    '/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b\swrote:/i',
+    '/\n.*On.*(\r?\n)?.*wrote:/im',
+    '/-+original\s+message-+\s*$/i',
+    '/from:\s*$/i',
+    '/^>.*$/im',
+  );
+
+  $text = $args['text']['value'];
+  $index = strlen($text);
+  foreach ($patterns as $pattern) {
+    if (preg_match($pattern, $text, $matches, PREG_OFFSET_CAPTURE) && $matches[0][1] < $index) {
+      $index = $matches[0][1];
+    }
+  }
+  $args['text']['value'] = substr($text, 0, $index);
+}
+
+/**
+ * Parse email address to get arguments for rules.
+ *
+ * @param string $email
+ *   The email address.
+ *
+ * @return array
+ *   Arguments: type & id.
+ */
+function _postmark_inbound_parse_address($email = '') {
+  $mail = explode('@', $email);
+  $data = explode('.', $mail[0]);
+
+  return array(
+    'type' => $data[0] ?: '',
+    'id' => $data[1] ?: '',
+  );
+}
+
+/**
+ * Parse email string to get display name.
+ *
+ * @param string $rfc_email_string
+ *   An rfc822 compliant recipient string,
+ *   e.g. "john@example.com", or "John Doe <john@example.com>".
+ *
+ * @return string
+ *   The display name portion of the string, or the portion before
+ *   the @ if there isn't one.
+ */
+function _postmark_inbound_get_displayname_from_rfc_email($rfc_email_string) {
+  // Match all words and whitespace, will be terminated by '<' or '@'.
+  preg_match('/[\w\s]+/', $rfc_email_string, $matches);
+  $matches[0] = trim($matches[0]);
+  return $matches[0];
+}
+
+/**
+ * Parse email string to get email address.
+ *
+ * @param string $rfc_email_string
+ *   An rfc822 compliant recipient string,
+ *   e.g. "john@example.com", or "John Doe <john@example.com>".
+ *
+ * @return string
+ *   The email portion of the string
+ */
+function _postmark_inbound_get_email_from_rfc_email($rfc_email_string) {
+  // Extract the actual email address.
+  preg_match('/[\\w\\.\\-+=*_]*@[\\w\\.\\-+=*_]*/', $rfc_email_string, $regs);
+  return $regs[0];
+}

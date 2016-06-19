@@ -1,0 +1,6 @@
+name = Postmark Inbound
+description = Handles Inbound Parse Webhooks froma Postmark 
+core = 7.x
+package = Mail
+configure = admin/config/system/postmark/inbound
+dependencies[] = rules

@@ -1,0 +1,16 @@
+name = Postmark Inbound Privatemsg
+description = Integration Postmark Inbound with Privatemsg.
+core = 7.x
+package = Mail
+dependencies[] = entity
+dependencies[] = features
+dependencies[] = postmark_inbound
+dependencies[] = php
+dependencies[] = privatemsg
+dependencies[] = privatemsg_rules
+dependencies[] = pm_email_notify
+dependencies[] = rb_misc
+dependencies[] = rules
+features[features_api][] = api:2
+features[rules_config][] = postmark_inbound_privatemsg_problems_with_replying
+features[rules_config][] = postmark_inbound_privatemsg_reply_to_privatemsg

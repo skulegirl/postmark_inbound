@@ -1,0 +1,18 @@
+<?php
+/**
+ * @file
+ * Integration Postmark Inbound with Privatemsg.
+ */
+
+/**
+ * Implements hook_mail_alter().
+ *
+ * Change Reply-To address to format:
+ *   pm_email_notify.<threadid>@<postmark_inbound_domain>
+ */
+function postmark_inbound_privatemsg_mail_alter(array &$message) {
+  if ($message['module'] == 'pm_email_notify' && $message['key'] == 'notice') {
+    $message['headers']['Reply-To'] = postmark_inbound_make_email_address('pm_email_notify', $message['params']['message']->thread_id);
+    $message['headers']['from'] = $message['from'] = $message['params']['message']->author->name .' <' . $message['headers']['Reply-To'] . '>';
+  }
+}
