@@ -33,7 +33,7 @@ function postmark_inbound_privatemsg_default_rules_configuration() {
         { "mail" : {
             "to" : "[from-email:value]",
             "subject" : "There\\u0027s some problem with your request.",
-            "message" : "Hello! We received your email but it we weren\\u0027t able to process it. Please check that you\\u0027re sending from the same address you use on [site:name].",
+            "message" : "Hello! We received your email but we weren\\u0027t able to forward it to its intended recipient. Please check that you\\u0027re sending from the same email address associated with your [site:name] account.",
             "language" : [ "" ]
           }
         }
